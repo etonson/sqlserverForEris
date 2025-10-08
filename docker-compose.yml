@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  sqlserver:
+    build: .
+    container_name: mssql-eris
+    ports:
+      - "1433:1433"
+    environment:
+      # 重要：SA_PASSWORD 必須傳給我們的 entrypoint.sh 腳本使用
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "1qaz@WSX3edc"
+      MSSQL_PID: "Developer"
+    volumes:
+      # 使用命名 Volume(named volumn) 來持久化資料庫資料
+      # 將名為 sqlserver_data 的 Volume 掛載到容器的資料目錄
+      - sqlserver_data:/var/opt/mssql/data
+      - sqlserver_log:/var/opt/mssql/log
+      - sqlserver_secret:/var/opt/mssql/secrets
+
+      # 使用綁定掛載將本地的備份檔目錄掛載到容器中
+      - ./backup:/var/opt/mssql/backup
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "1qaz@WSX3edc", "-Q", "SELECT 1"]
+      interval: 10s
+      retries: 10
+      start_period: 60s
+      timeout: 5s
+
+# 在最外層宣告命名 Volume，讓 Docker 負責管理它
+volumes:
+  sqlserver_data:
+  sqlserver_log:
+  sqlserver_secret:
