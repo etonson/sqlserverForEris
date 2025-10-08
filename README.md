@@ -1,168 +1,181 @@
-好的，這是一個為你的 SQL Server Podman 設置設計的 `README.md` 檔案範本，包含了如何建置、運行、連接和清理的說明。
+# SQL Server 2022 容器化方案 (Podman/Docker)
 
----
+本專案提供了一個使用 Podman 或 Docker 運行 SQL Server 2019 容器的完整解決方案。透過自定義的 `Dockerfile`，我們不僅建置了 SQL Server 環境，還整合了 `mssql-tools` 以方便進行命令列操作。此外，一個智慧型的 `entrypoint.sh` 腳本確保了服務在完全就緒後才能執行初始化任務，並結合 `docker-compose.yml` 檔案來簡化服務的部署、管理和擴展。
 
-# SQL Server 2019 容器化設置 (Podman)
+## ✨ 核心功能
 
-這個專案提供了一個使用 Podman 運行 SQL Server 2019 容器的設置。它使用了自定義的 Dockerfile 來安裝 `mssql-tools` 並結合一個 `docker-compose.yml` 檔案來簡化服務的部署和管理。
+*   **SQL Server 2019**: 基於微軟官方的 `mcr.microsoft.com/mssql/server:2019-latest` 映像檔。
+*   **內建工具**: `Dockerfile` 中已整合 `mssql-tools` (包含 `sqlcmd` 和 `bcp`)，無需額外安裝即可在容器內或透過 `exec` 進行操作。
+*   **Compose 管理**: 使用 `podman-compose` 或 `docker-compose` 進行一鍵啟動、停止和管理。
+*   **數據持久化**: 透過 Docker 命名卷 (Named Volumes) 持久化資料庫檔案、日誌和密鑰，確保容器刪除後數據依然安全。
+*   **智慧型啟動腳本**: `entrypoint.sh` 會自動等待 SQL Server 服務完全啟動後，再執行後續的初始化腳本，極大提高了自動化部署的可靠性。
+*   **內建健康檢查**: `docker-compose.yml` 中包含了健康檢查機制，可以透過 `podman ps` 或 `docker ps` 直觀地監控資料庫服務狀態。
+*   **備份與還原**: 透過綁定掛載 (Bind Mount) 的 `./backup` 目錄，輕鬆實現資料庫備份檔案在主機與容器間的傳輸。
 
-## 專案結構
+## 📂 專案結構
 
 ```
 .
-├── Dockerfile
-├── entrypoint.sh
-├── docker-compose.yml
-└── README.md
+├── Dockerfile          # 定義 SQL Server 映像的建置步驟，包含安裝 mssql-tools
+├── entrypoint.sh       # 容器啟動時執行的智慧型腳本，會等待 SQL Server 就緒
+├── docker-compose.yml  # 定義和管理 sqlserver 服務的 Compose 檔案
+└── README.md           # 本說明文件
 ```
 
-*   `Dockerfile`: 定義了 SQL Server 映像檔的建置步驟，包括安裝 `mssql-tools`。
-*   `entrypoint.sh`: 容器啟動時執行的腳本。
-*   `docker-compose.yml`: 使用 `podman-compose` 定義和管理 `sqlserver` 服務。
-*   `README.md`: 本說明文件。
+## 🛠️ 先決條件
 
-## 先決條件
+請確保您的系統已安裝以下工具：
 
-在開始之前，請確保你的系統已經安裝了以下工具：
-
-*   **Podman**: 容器引擎。
+*   **Podman** 及 **podman-compose**
     *   [Podman 安裝指南](https://podman.io/docs/installation)
-*   **podman-compose**: 用於解析 `docker-compose.yml` 檔案並與 Podman 互動。
-    *   安裝方式 (通常透過 pip): `pip install podman-compose`
-*   **Git**: (可選) 如果你需要從版本控制系統克隆此專案。
+    *   安裝 `podman-compose`: `pip install podman-compose`
+*   **或 Docker** 及 **docker-compose**
+    *   [Docker 安裝指南](https://docs.docker.com/get-docker/)
 
-### Podman Machine (macOS / Windows)
+### 提示 (macOS / Windows)
 
-如果你在 macOS 或 Windows 上使用 Podman，你需要確保 `podman machine` 已經啟動：
-
+若您在 macOS 或 Windows 上使用 Podman，請確保 `podman machine` 已啟動：
 ```bash
 podman machine init
 podman machine start
 ```
 
-## 設定步驟
+## 🚀 快速開始
 
-1.  **克隆專案 (如果適用)**
-
-    ```bash
-    git clone <你的Git倉庫URL>
-    cd <你的專案目錄>
-    ```
-
-2.  **創建備份目錄**
-
-    `docker-compose.yml` 中定義了一個綁定掛載，將主機上的 `./backup` 目錄映射到容器中。請確保此目錄存在：
-
-    ```bash
-    mkdir -p ./backup
-    ```
-
-3.  **準備 `entrypoint.sh`**
-
-    確保 `entrypoint.sh` 腳本存在於與 `Dockerfile` 和 `docker-compose.yml` 相同的目錄中。該腳本會在容器啟動時執行。一個基礎的範例如下：
-
-    ```bash
-    #!/bin/bash
-
-    # 執行 SQL Server 官方映像的預設 entrypoint
-    # 這會啟動 SQL Server
-    /opt/mssql/bin/sqlservr
-    ```
-    **注意:** 如果你需要 SQL Server 啟動後執行自定義的 SQL 腳本（例如創建資料庫、用戶），你需要在 `entrypoint.sh` 中添加邏輯，等待 SQL Server 服務完全可用後再執行 `sqlcmd` 命令。
-
-## 運行服務
-
-使用 `podman-compose` 命令來建置映像檔並啟動 SQL Server 服務。
+#### 1. 克隆專案
 
 ```bash
+git clone https://github.com/etonson/sqlserverForEris.git
+cd sqlserverForEris
+```
+
+#### 2. 創建備份目錄
+
+`docker-compose.yml` 設定了將主機的 `./backup` 目錄映射到容器中。請手動創建此目錄：
+
+```bash
+mkdir -p ./backup
+```
+
+#### 3. 建置 Docker 映像檔 (Build)
+
+此步驟會根據 `Dockerfile` 建立一個包含 SQL Server 和 `mssql-tools` 的本地映像檔。
+
+```bash
+# 使用 Podman
+podman-compose build
+
+# 或使用 Docker
+docker-compose build
+```
+這個指令只建置映像，不啟動服務。如果建置過程需要除錯，這是非常有用的第一步。
+
+#### 4. 啟動 SQL Server 服務
+
+使用 `up` 指令來啟動服務。第一次執行時，如果映像不存在，它也會自動執行建置。
+
+```bash
+# 使用 Podman (後台運行)
 podman-compose up -d
+
+# 或使用 Docker (後台運行)
+docker-compose up -d
 ```
 
-*   `-d` 選項會在後台運行容器。
-*   第一次運行時，`podman-compose` 會自動建置 `Dockerfile` 中的映像檔，這可能需要一些時間，因為它會下載基礎映像並安裝 `mssql-tools`。
+## 🔗 連接到資料庫
 
-## 檢查服務狀態
+服務啟動並顯示為 `(healthy)` 狀態後，您即可連接。
 
-你可以使用以下命令來檢查服務的運行狀態：
+**連接資訊:**
 
-```bash
-# 查看 podman-compose 管理的服務狀態
-podman-compose ps
-
-# 查看所有 Podman 容器
-podman ps -a
-
-# 查看 Podman 卷
-podman volume ls
-```
-
-你會看到一個名為 `mssql-eris` 的容器正在運行，其健康檢查會在後台進行。
-
-## 連接到 SQL Server
-
-一旦容器啟動並其健康檢查顯示為 `healthy`，你就可以連接到 SQL Server 了。
-
-**資料庫連接資訊:**
-
-*   **主機 (Host):** `localhost` (如果你在主機上運行)
+*   **主機 (Host):** `localhost`
 *   **埠 (Port):** `1433`
 *   **用戶名 (Username):** `sa`
-*   **密碼 (Password):** `1qaz@WSX3edc` (請注意，這是 `docker-compose.yml` 中設定的密碼)
+*   **密碼 (Password):** `1qaz@WSX3edc` (定義於 `docker-compose.yml`)
 
-你可以使用 `sqlcmd` (如果你的本機安裝了 `mssql-tools`) 或任何圖形化的 SQL Server 客戶端工具 (如 Azure Data Studio, SQL Server Management Studio) 來連接。
+您可以使用任何圖形化 SQL Server 客戶端 (如 Azure Data Studio, DBeaver) 或使用 `sqlcmd` 進行連接。
 
-**使用 `sqlcmd` 連接:**
-
+**使用 `sqlcmd` 從主機連接:**
 ```bash
 sqlcmd -S localhost -U sa -P "1qaz@WSX3edc"
 ```
 
-## 持久化數據與備份
+## 💾 數據管理
 
-這個設置使用了以下機制來處理數據持久化：
+### 持久化
 
-*   **命名卷 (Named Volumes):**
-    *   `sqlserver_data`: 用於持久化 SQL Server 的資料庫檔案。
-    *   `sqlserver_log`: 用於持久化 SQL Server 的交易日誌。
-    *   `sqlserver_secret`: 用於持久化 SQL Server 的機密資訊。
-    這些卷由 Podman 管理，確保容器重啟或刪除後數據不會丟失。
+本專案使用三個命名卷來確保數據安全：`sqlserver_data`, `sqlserver_log`, `sqlserver_secret`。即使您執行 `podman-compose down`，這些卷中的數據也會被保留。
 
-*   **綁定掛載 (Bind Mount):**
-    *   `./backup:/var/opt/mssql/backup`: 將主機上的 `./backup` 目錄映射到容器內的 `/var/opt/mssql/backup`。這使得你可以在主機上存放資料庫備份檔案，並讓容器讀取或寫入。
+### 備份 (Backup)
 
-## 停止和清理服務
-
-當你完成後，可以使用 `podman-compose down` 命令來停止並移除服務所創建的所有容器、網絡和**命名卷**。
+要備份資料庫（例如 `MyDatabase`），可以進入容器執行 `sqlcmd`，備份檔案會出現在主機的 `./backup` 目錄中。
 
 ```bash
-podman-compose down -v
+# 語法
+# podman-compose exec <服務名> <指令>
+podman-compose exec sqlserver /opt/mssql-tools/bin/sqlcmd \
+    -S localhost -U sa -P "1qaz@WSX3edc" \
+    -Q "BACKUP DATABASE [MyDatabase] TO DISK = N'/var/opt/mssql/backup/MyDatabase.bak' WITH NOFORMAT, INIT, NAME = 'MyDatabase-full', SKIP, NOREWIND, NOUNLOAD, STATS = 10"
 ```
 
-*   `-v` 選項會同時移除命名卷 (`sqlserver_data`, `sqlserver_log`, `sqlserver_secret`)。**請注意，這將刪除你的資料庫數據，請謹慎使用。**
-*   綁定掛載的 `./backup` 目錄不會被刪除，其內容將保留在你的主機上。
+### 還原 (Restore)
 
-如果你只想停止容器而不移除它們和卷：
+1.  將您的 `.bak` 備份檔案放入主機的 `./backup` 資料夾。
+2.  執行以下指令進行還原。
 
 ```bash
-podman-compose stop
+podman-compose exec sqlserver /opt/mssql-tools/bin/sqlcmd \
+    -S localhost -U sa -P "1qaz@WSX3edc" \
+    -Q "RESTORE DATABASE [MyDatabase] FROM DISK = N'/var/opt/mssql/backup/YourBackupFile.bak' WITH FILE = 1, NOUNLOAD, REPLACE, STATS = 5"
 ```
 
-然後你可以稍後再次啟動它們：
+## 🌟 進階用法：啟動時自動初始化資料庫
 
-```bash
-podman-compose start
-```
+`entrypoint.sh` 腳本的設計允許您在 SQL Server 首次啟動時自動執行初始化腳本 (例如創建資料庫、Schema 或 seeded data)。
 
-## 故障排除
+🔹 功能說明
 
-*   **`podman-compose: command not found`**: 確保 `podman-compose` 已正確安裝並在你的 PATH 中。
-*   **容器無法啟動或健康檢查失敗**:
-    *   檢查 `podman logs mssql-eris` 的輸出，查看 SQL Server 的啟動日誌。
-    *   確保 `SA_PASSWORD` 符合 SQL Server 的密碼複雜度要求。
-    *   檢查 `Dockerfile` 中的 APT 倉庫配置，確保其與 SQL Server 基礎映像的 Linux 發行版版本兼容。
-*   **無法連接到 SQL Server**:
-    *   確認容器正在運行 (`podman ps`)。
-    *   確認埠映射正確 (`-p 1433:1433`)。
-    *   確認使用的用戶名和密碼正確。
+1. 自動抓最新 .bak
+    不用手動修改檔名
 
----
+2. 自動抓 Logical Name
+    無論原資料庫叫 PTPMSDB、MyDB，都能正確還原
+3. 檢查資料庫是否存在
+    若已存在，跳過還原
+
+4. 保持容器運行
+    wait 讓 SQL Server 在前景執行
+
+## ⚙️ 服務管理指令
+
+*   **查看服務狀態**:
+    ```bash
+    podman-compose ps
+    podman ps -a --format "table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+    ```
+
+*   **查看日誌**:
+    ```bash
+    podman-compose logs -f sqlserver
+    ```
+
+*   **進入容器內部**:
+    ```bash
+    podman-compose exec sqlserver /bin/bash
+    ```
+
+*   **停止服務** (不刪除容器和數據):
+    ```bash
+    podman-compose stop
+    ```
+
+*   **停止並移除容器** (數據卷會被保留):
+    ```bash
+    podman-compose down
+    ```
+
+*   **徹底清理** (移除容器、網路和**所有數據**):
+    ```bash
+    # 警告：此操作將永久刪除您的資料庫數據！
+    podman-compose down -v
+    ```
