@@ -1,5 +1,5 @@
-# 使用官方 SQL Server 2019 映像
-FROM mcr.microsoft.com/mssql/server:2019-latest
+# 使用官方 SQL Server 2022 映像
+FROM mcr.microsoft.com/mssql/server:2022-latest
 
 USER root
 
