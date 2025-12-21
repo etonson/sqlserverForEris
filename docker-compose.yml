@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   sqlserver:
@@ -9,7 +9,8 @@ services:
     environment:
       # 重要：SA_PASSWORD 必須傳給我們的 entrypoint.sh 腳本使用
       ACCEPT_EULA: "Y"
-      SA_PASSWORD: "1qaz@WSX3edc"
+      SA_PASSWORD: ${SA_PASSWORD}
+      USER_NAME: ${USER_NAME}
       MSSQL_PID: "Developer"
     volumes:
       # 使用命名 Volume(named volumn) 來持久化資料庫資料
@@ -21,7 +22,19 @@ services:
       # 使用綁定掛載將本地的備份檔目錄掛載到容器中
       - ./backup:/var/opt/mssql/backup
     healthcheck:
-      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "1qaz@WSX3edc", "-Q", "SELECT 1"]
+      test:
+        [
+          "CMD",
+          "/opt/mssql-tools/bin/sqlcmd",
+          "-S",
+          "localhost",
+          "-U",
+          "${USER_NAME}",
+          "-P",
+          "${SA_PASSWORD}",
+          "-Q",
+          "SELECT 1",
+        ]
       interval: 10s
       retries: 10
       start_period: 60s
