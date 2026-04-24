@@ -39,14 +39,20 @@ restore_database() {
     echo "[開始] 正在從備份還原 '$DB_NAME'..."
 
     # 提取邏輯檔名 (Data 和 Log)
-    # 使用 RESTORE FILELISTONLY，並過濾 Type (D=Data, L=Log)
-    local DATA_LOGICAL=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
-        -Q "RESTORE FILELISTONLY FROM DISK = N'$BAK_PATH'" -h -1 | awk '$3=="D" {print $1}' | head -n 1)
-    local LOG_LOGICAL=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
-        -Q "RESTORE FILELISTONLY FROM DISK = N'$BAK_PATH'" -h -1 | awk '$3=="L" {print $1}' | head -n 1)
+    # 使用 RESTORE FILELISTONLY，並配合 -s "," 與 -W 來處理可能包含空格的路徑
+    local FILE_LIST
+    FILE_LIST=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
+        -Q "SET NOCOUNT ON; RESTORE FILELISTONLY FROM DISK = N'$BAK_PATH'" -h -1 -s "," -W)
+
+    local DATA_LOGICAL
+    DATA_LOGICAL=$(echo "$FILE_LIST" | awk -F"," '{for(i=3;i<=NF;i++) {t=$i; gsub(/^[ \t]+|[ \t]+$/, "", t); if(t=="D") {n=$1; gsub(/^[ \t]+|[ \t]+$/, "", n); print n; exit}}}')
+    local LOG_LOGICAL
+    LOG_LOGICAL=$(echo "$FILE_LIST" | awk -F"," '{for(i=3;i<=NF;i++) {t=$i; gsub(/^[ \t]+|[ \t]+$/, "", t); if(t=="L") {n=$1; gsub(/^[ \t]+|[ \t]+$/, "", n); print n; exit}}}')
 
     if [ -z "$DATA_LOGICAL" ] || [ -z "$LOG_LOGICAL" ]; then
         echo "[錯誤] 無法從 $BAK_PATH 提取邏輯檔名。"
+        echo "[調試] sqlcmd 輸出結果如下："
+        echo "$FILE_LIST"
         return
     fi
 
