@@ -1,70 +1,106 @@
 #!/bin/bash
 set -euo pipefail
 
-BACKUP_DIR="/var/opt/mssql/backup"
+BACKUP_ROOT="/var/opt/mssql/backups"
 DATA_DIR="/var/opt/mssql/data"
 
-# ---------- 啟動 SQL Server ----------
+# ---------- 啟動 SQL Server (背景執行) ----------
 /opt/mssql/bin/sqlservr &
 
-# ---------- 等待 SQL Server ----------
-echo "正在等待 SQL Server 啟動..."
+# ---------- 等待 SQL Server Ready ----------
+echo "==> 正在等待 SQL Server 啟動..."
 until /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" > /dev/null 2>&1; do
   sleep 5
 done
-echo "SQL Server 已啟動。"
+echo "==> SQL Server 已啟動。"
 
-# ---------- 掃描所有 .bak ----------
-shopt -s nullglob
-BAK_FILES=("$BACKUP_DIR"/*.bak)
+# ---------- 決定要還原哪些資料庫 ----------
+# 優先順序：
+# 1. 如果有 RESTORE_DB 環境變數，則只還原該 DB
+# 2. 如果沒有，則掃描 $BACKUP_ROOT 下的所有子目錄或 .bak 檔案
 
-if [ ${#BAK_FILES[@]} -eq 0 ]; then
-  echo " 找不到任何 .bak 檔案"
-  exit 1
+restore_database() {
+    local DB_NAME=$1
+    local BAK_PATH=$2
+
+    echo "----------------------------------------------------"
+    echo "目標資料庫：$DB_NAME"
+    echo "備份檔路徑：$BAK_PATH"
+
+    # 檢查資料庫是否已存在
+    local db_exists=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
+        -Q "SET NOCOUNT ON; IF DB_ID('$DB_NAME') IS NOT NULL PRINT 1 ELSE PRINT 0" -h -1 | tr -d '[:space:]')
+
+    if [ "$db_exists" = "1" ]; then
+        echo "[跳過] 資料庫 '$DB_NAME' 已存在。"
+        return
+    fi
+
+    echo "[開始] 正在從備份還原 '$DB_NAME'..."
+
+    # 提取邏輯檔名 (Data 和 Log)
+    # 使用 RESTORE FILELISTONLY，並過濾 Type (D=Data, L=Log)
+    local DATA_LOGICAL=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
+        -Q "RESTORE FILELISTONLY FROM DISK = N'$BAK_PATH'" -h -1 | awk '$3=="D" {print $1}' | head -n 1)
+    local LOG_LOGICAL=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" \
+        -Q "RESTORE FILELISTONLY FROM DISK = N'$BAK_PATH'" -h -1 | awk '$3=="L" {print $1}' | head -n 1)
+
+    if [ -z "$DATA_LOGICAL" ] || [ -z "$LOG_LOGICAL" ]; then
+        echo "[錯誤] 無法從 $BAK_PATH 提取邏輯檔名。"
+        return
+    fi
+
+    echo "邏輯檔名：Data='$DATA_LOGICAL', Log='$LOG_LOGICAL'"
+
+    # 執行還原
+    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "
+        RESTORE DATABASE [$DB_NAME]
+        FROM DISK = N'$BAK_PATH'
+        WITH MOVE N'$DATA_LOGICAL' TO N'$DATA_DIR/$DB_NAME.mdf',
+             MOVE N'$LOG_LOGICAL' TO N'$DATA_DIR/${DB_NAME}_log.ldf',
+             REPLACE, STATS = 10;
+    "
+    echo "[成功] '$DB_NAME' 還原完成。"
+}
+
+if [ -n "${RESTORE_DB:-}" ]; then
+    echo "==> 指定還原單一資料庫：$RESTORE_DB"
+    # 檢查多種可能路徑：
+    # 1. backups/RESTORE_DB/latest.bak (建議結構)
+    # 2. backups/RESTORE_DB.bak (舊有結構)
+    if [ -f "$BACKUP_ROOT/$RESTORE_DB/latest.bak" ]; then
+        restore_database "$RESTORE_DB" "$BACKUP_ROOT/$RESTORE_DB/latest.bak"
+    elif [ -f "$BACKUP_ROOT/$RESTORE_DB.bak" ]; then
+        restore_database "$RESTORE_DB" "$BACKUP_ROOT/$RESTORE_DB.bak"
+    else
+        echo "[錯誤] 找不到資料庫 $RESTORE_DB 的備份檔。"
+    fi
+else
+    echo "==> 掃描所有備份檔進行還原..."
+    shopt -s nullglob
+    found_any=false
+
+    # 掃描結構化目錄：backups/*/latest.bak
+    for bak in "$BACKUP_ROOT"/*/latest.bak; do
+        DB=$(basename "$(dirname "$bak")")
+        restore_database "$DB" "$bak"
+        found_any=true
+    done
+
+    # 掃描扁平目錄：backups/*.bak (相容舊模式)
+    for bak in "$BACKUP_ROOT"/*.bak; do
+        DB=$(basename "$bak" .bak)
+        restore_database "$DB" "$bak"
+        found_any=true
+    done
+
+    if [ "$found_any" = false ]; then
+        echo "==> [警告] 在 $BACKUP_ROOT 下找不到任何 .bak 檔案或 latest.bak 結構。"
+    fi
 fi
 
-for BACKUP_FILE in "${BAK_FILES[@]}"; do
-  DB_NAME=$(basename "$BACKUP_FILE" .bak)
+echo "==> 所有還原程序結束。"
 
-  echo "======================================"
-  echo "處理備份檔：$BACKUP_FILE"
-  echo "目標資料庫：$DB_NAME"
-
-  # ---------- 檢查 DB 是否存在 ----------
-  db_exists=$(/opt/mssql-tools/bin/sqlcmd -S localhost -U "$USER_NAME" -P "$SA_PASSWORD" \
-    -Q "IF DB_ID('$DB_NAME') IS NOT NULL PRINT 1 ELSE PRINT 0" -h -1 | tr -d '[:space:]')
-
-  if [ "$db_exists" = "1" ]; then
-    echo "資料庫 '$DB_NAME' 已存在，跳過。"
-    continue
-  fi
-
-  echo "開始還原 '$DB_NAME'..."
-
-  # ---------- 取得邏輯檔名 ----------
-  mapfile -t logical_names < <(
-    /opt/mssql-tools/bin/sqlcmd -S localhost -U "$USER_NAME" -P "$SA_PASSWORD" \
-      -Q "RESTORE FILELISTONLY FROM DISK = N'$BACKUP_FILE'" -h -1 |
-      awk '{print $1}'
-  )
-
-  DATA_LOGICAL=${logical_names[0]}
-  LOG_LOGICAL=${logical_names[1]}
-
-  echo "邏輯檔名：DATA=$DATA_LOGICAL, LOG=$LOG_LOGICAL"
-
-  # ---------- 還原 ----------
-  /opt/mssql-tools/bin/sqlcmd -S localhost -U "$USER_NAME" -P "$SA_PASSWORD" -Q "
-    RESTORE DATABASE [$DB_NAME]
-    FROM DISK = N'$BACKUP_FILE'
-    WITH MOVE N'$DATA_LOGICAL' TO N'$DATA_DIR/$DB_NAME.mdf',
-         MOVE N'$LOG_LOGICAL' TO N'$DATA_DIR/${DB_NAME}_log.ldf',
-         REPLACE, STATS = 5
-  "
-
-  echo " '$DB_NAME' 還原完成"
-done
-
-# ---------- 保持容器 ----------
+# ---------- 保持容器運行 ----------
+# wait 命令會等待背景的 sqlservr 程序
 wait
-

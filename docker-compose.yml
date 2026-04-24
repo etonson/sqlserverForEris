@@ -11,16 +11,17 @@ services:
       ACCEPT_EULA: "Y"
       SA_PASSWORD: ${SA_PASSWORD}
       USER_NAME: ${USER_NAME}
+      RESTORE_DB: ${RESTORE_DB:-}
       MSSQL_PID: "Developer"
     volumes:
-      # 使用命名 Volume(named volumn) 來持久化資料庫資料
+      # 使用命名 Volume(named volume) 來持久化資料庫資料
       # 將名為 sqlserver_data 的 Volume 掛載到容器的資料目錄
       - sqlserver_data:/var/opt/mssql/data
       - sqlserver_log:/var/opt/mssql/log
       - sqlserver_secret:/var/opt/mssql/secrets
 
       # 使用綁定掛載將本地的備份檔目錄掛載到容器中
-      - ./backup:/var/opt/mssql/backup
+      - ./backups:/var/opt/mssql/backups
     healthcheck:
       test:
         [
