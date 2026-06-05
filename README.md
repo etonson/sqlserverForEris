@@ -16,6 +16,7 @@
 .
 ├── backups/            # 存放備份檔 (.bak) 的目錄 (自動映射至容器)
 ├── BACKUP.md           # 備份檔命名規範與中繼資料 (Metadata) 說明
+├── backup.sh           # 備份指令腳本，可自動將資料庫備份、歸檔並更新 Metadata
 ├── docker-compose.yml  # 服務定義與環境變數配置
 ├── Dockerfile          # 建置包含 mssql-tools 的 SQL Server 2022 映像
 └── entrypoint.sh       # 核心腳本：負責啟動 SQL Server 並執行自動還原
@@ -49,6 +50,13 @@ docker compose logs -f
 ```
 
 ## 🛠️ 進階用法
+
+### 💾 執行資料庫備份
+您可以隨時將運行中資料庫的最新狀態備份出來：
+* **互動選單**：直接執行 `./backup.sh` 即可列出目前所有的使用者資料庫供您選擇。
+* **指定備份**：執行 `./backup.sh [資料庫名稱]` 備份特定資料庫，例如 `./backup.sh hccg`。
+
+更多細節請參考 [BACKUP.md](./BACKUP.md)。
 
 ### 只還原特定資料庫
 如果您有多個備份，但只想針對其中一個進行實驗：
